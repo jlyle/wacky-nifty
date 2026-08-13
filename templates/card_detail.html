@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ card.name }} · Wacky Packages Vault{% endblock %}
+{% block content %}
+<section class="detail-layout">
+  <div class="detail-topbar">
+    <a class="btn btn-secondary" href="{{ request.referrer or url_for('index') }}">← Back to vault</a>
+  </div>
+
+  <div class="detail-grid">
+    <div class="panel detail-image-panel">
+      {% if card.image %}
+      <img class="detail-image" src="{{ url_for('static', filename='cards/' ~ card.image) }}" alt="{{ card.name }}">
+      {% else %}
+      <div class="detail-image detail-fallback">No image</div>
+      {% endif %}
+    </div>
+
+    <div class="panel detail-info">
+      <div class="eyebrow">ORIGINAL SERIES CARD</div>
+      <h1>{{ card.name }}</h1>
+      <div class="detail-meta">
+        <span>Series {{ card.series }}</span>
+        <span>Sticker #{{ card.sticker_number }}</span>
+        <span>{{ card.code }}</span>
+      </div>
+
+      <div class="detail-pills">
+        {% if card.owned == 1 %}
+        <span class="pill pill-owned">Owned{% if card.duplicate_count > 0 %} +{{ card.duplicate_count }} dupes{% endif %}</span>
+        {% else %}
+        <span class="pill pill-missing">Missing</span>
+        {% endif %}
+        {% if card.back_color %}
+        <span class="pill pill-neutral">{{ card.back_color }}</span>
+        {% endif %}
+      </div>
+
+      <div class="detail-table">
+        <div class="detail-row"><span>Name</span><strong>{{ card.name }}</strong></div>
+        <div class="detail-row"><span>Series</span><strong>{{ card.series }}</strong></div>
+        <div class="detail-row"><span>Sticker number</span><strong>{{ card.sticker_number }}</strong></div>
+        <div class="detail-row"><span>Status</span><strong>{{ "Owned" if card.owned == 1 else "Missing" }}</strong></div>
+        <div class="detail-row"><span>Duplicates</span><strong>{{ card.duplicate_count }}</strong></div>
+        <div class="detail-row"><span>Back color</span><strong>{{ card.back_color or "—" }}</strong></div>
+        <div class="detail-row"><span>Order date</span><strong>{{ card.order_date or "—" }}</strong></div>
+      </div>
+
+      <div class="notes-block">
+        <h3>Order date</h3>
+        <form method="post" action="{{ url_for('update_order_date', card_id=card.id) }}">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <input class="order-date-input" type="date" name="order_date" value="{{ card.order_date }}">
+          <div class="notes-actions">
+            <button class="btn btn-primary" type="submit">Save Date</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="notes-block">
+        <h3>Notes</h3>
+        <form method="post" action="{{ url_for('update_notes', card_id=card.id) }}">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <textarea name="notes" rows="8">{{ card.notes }}</textarea>
+          <div class="notes-actions">
+            <button class="btn btn-primary" type="submit">Save Notes</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>
+{% endblock %}

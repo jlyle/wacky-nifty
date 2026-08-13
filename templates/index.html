@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+{% block title %}Wacky Packages Vault{% endblock %}
+{% block content %}
+<section class="hero">
+  <div>
+    <div class="eyebrow">ORIGINAL SERIES COLLECTOR DATABASE</div>
+    <h1>Wacky Packages Vault</h1>
+    <p class="hero-copy">Card inventory with duplicate tracking and a puzzle tracker.</p>
+  </div>
+  <div class="stats-grid">
+    <div class="stat-card"><div class="stat-label">Cards in vault</div><div class="stat-value">{{ total_cards }}</div></div>
+    <div class="stat-card"><div class="stat-label">Owned</div><div class="stat-value">{{ owned_total }}</div></div>
+    <div class="stat-card"><div class="stat-label">Completion</div><div class="stat-value">{{ completion_pct }}%</div></div>
+    <div class="stat-card"><div class="stat-label">Total dupes</div><div class="stat-value">{{ duplicate_total }}</div></div>
+  </div>
+</section>
+
+<section class="panel filter-panel">
+  <form method="get" class="filter-grid">
+    <div class="field field-wide">
+      <label for="search">Search</label>
+      <input id="search" name="search" value="{{ search }}" placeholder="Cap'n Crud, Ludlow, $25, dupes...">
+    </div>
+
+    <div class="field">
+      <label for="series">Series</label>
+      <select id="series" name="series">
+        <option value="">All</option>
+        {% for num in range(1, 17) %}
+        <option value="{{ num }}" {% if series_filter == num|string %}selected{% endif %}>Series {{ num }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="ownership">Ownership</label>
+      <select id="ownership" name="ownership">
+        <option value="" {% if not ownership_filter %}selected{% endif %}>All</option>
+        <option value="owned" {% if ownership_filter == "owned" %}selected{% endif %}>Owned</option>
+        <option value="missing" {% if ownership_filter == "missing" %}selected{% endif %}>Missing</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="back_color">Back</label>
+      <select id="back_color" name="back_color">
+        <option value="">All</option>
+        {% for option in back_color_options %}
+        <option value="{{ option }}" {% if back_color_filter == option %}selected{% endif %}>{{ option|title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="sort">Sort</label>
+      <select id="sort" name="sort">
+        <option value="series_number" {% if sort_by == "series_number" %}selected{% endif %}>Series</option>
+        <option value="name" {% if sort_by == "name" %}selected{% endif %}>Name</option>
+        <option value="duplicates" {% if sort_by == "duplicates" %}selected{% endif %}>Dupes</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="view">View</label>
+      <select id="view" name="view">
+        <option value="gallery" {% if view_mode == "gallery" %}selected{% endif %}>Gallery</option>
+        <option value="spreadsheet" {% if view_mode == "spreadsheet" %}selected{% endif %}>Spreadsheet</option>
+      </select>
+    </div>
+
+    <div class="field checkbox-field">
+      <label class="checkbox-row">
+        <input type="checkbox" name="missing_only" value="1" {% if missing_only %}checked{% endif %}>
+        <span>Missing only</span>
+      </label>
+      <label class="checkbox-row">
+        <input type="checkbox" name="duplicates_only" value="1" {% if duplicates_only %}checked{% endif %}>
+        <span>Dupes only</span>
+      </label>
+    </div>
+
+    <div class="filter-actions">
+      <button class="btn btn-primary" type="submit">Apply</button>
+      <a class="btn btn-secondary" href="{{ url_for('index') }}">Reset</a>
+      <a class="btn btn-secondary" href="{{ url_for('puzzles') }}">Puzzle Tracker</a>
+    </div>
+  </form>
+</section>
+
+<section class="content-grid">
+  <aside class="panel sidebar">
+    <h2>Series progress</h2>
+    <p class="muted">Quick glance at how the original-series hunt is going.</p>
+    <div class="progress-list">
+      {% for row in series_progress %}
+      <div class="progress-row">
+        <div class="progress-top">
+          <span>Series {{ row.series }}</span>
+          <span>{{ row.owned }}/{{ row.total }}</span>
+        </div>
+        <div class="progress-track">
+          <div class="progress-bar" style="width: {{ row.percent }}%"></div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </aside>
+
+  <main class="panel results">
+    <div class="results-header">
+      <div>
+        <h2>{{ cards|length }} cards shown</h2>
+        <p class="muted">
+          {% if view_mode == "spreadsheet" %}
+          Spreadsheet view with duplicate tracking.
+          {% else %}
+          Gallery view with duplicate tracking.
+          {% endif %}
+        </p>
+      </div>
+      <div class="legend">
+        <span class="pill pill-owned">Owned</span>
+        <span class="pill pill-missing">Missing</span>
+        <span class="pill pill-neutral">Dupes tracked</span>
+      </div>
+      <div class="export-actions">
+        <div class="export-actions-row">
+          <a class="btn btn-secondary btn-small" href="{{ '/export/csv?' + request.query_string.decode('utf-8') }}">Save CSV</a>
+          <a class="btn btn-secondary btn-small" href="{{ '/export/txt?' + request.query_string.decode('utf-8') }}">Save TXT</a>
+          <a class="btn btn-secondary btn-small" href="/export/duplicates">Save Dupes TXT</a>
+        </div>
+        <div class="export-actions-row">
+          <a class="btn btn-secondary btn-small" href="/export/owned">Save Owned TXT</a>
+          <a class="btn btn-secondary btn-small" href="/export/missing">Save Missing TXT</a>
+          <form method="get" action="/export/orders" class="order-export-form">
+            <input type="date" name="from" title="From date">
+            <input type="date" name="to" title="To date">
+            <button class="btn btn-secondary btn-small" type="submit">Save Orders TXT</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    {% if view_mode == "spreadsheet" %}
+    <div class="table-wrap">
+      <table class="spreadsheet-table">
+        <thead>
+          <tr>
+            <th>Series</th>
+            <th>#</th>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Dupes</th>
+            <th>Back</th>
+            <th>Notes</th>
+            <th>Order date</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in cards %}
+          <tr class="{{ 'table-owned' if c.owned == 1 else 'table-missing' }}">
+            <td>{{ c.series }}</td>
+            <td>{{ c.sticker_number }}</td>
+            <td><a href="{{ url_for('card_detail', card_id=c.id) }}">{{ c.name }}</a></td>
+            <td>{% if c.owned == 1 %}Owned{% else %}Missing{% endif %}</td>
+            <td>
+              <form method="post" action="{{ url_for('update_duplicates', card_id=c.id) }}">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <input class="small-number" type="number" min="0" name="duplicate_count" value="{{ c.duplicate_count }}">
+                <button class="btn btn-small btn-secondary" type="submit">Save</button>
+              </form>
+            </td>
+            <td>
+              <form method="post" action="{{ url_for('update_back_color', card_id=c.id) }}">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <select name="back_color" onchange="this.form.submit()">
+                  <option value="">—</option>
+                  {% for option in back_color_options %}
+                  <option value="{{ option }}" {% if c.back_color == option %}selected{% endif %}>{{ option|title }}</option>
+                  {% endfor %}
+                </select>
+              </form>
+            </td>
+            <td>
+              <form method="post" action="{{ url_for('update_notes', card_id=c.id) }}">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <input class="notes-input" type="text" name="notes" value="{{ c.notes }}">
+                <button class="btn btn-small btn-secondary" type="submit">Save</button>
+              </form>
+            </td>
+            <td>
+              <form method="post" action="{{ url_for('update_order_date', card_id=c.id) }}">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <input class="order-date-input" type="date" name="order_date" value="{{ c.order_date }}">
+                <button class="btn btn-small btn-secondary" type="submit">Save</button>
+              </form>
+            </td>
+            <td>
+              {% if c.owned == 1 %}
+              <form method="post" action="{{ url_for('mark_missing', card_id=c.id) }}">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <button class="btn btn-primary btn-small" type="submit">Mark Missing</button>
+              </form>
+              {% else %}
+              <form method="post" action="{{ url_for('mark_owned', card_id=c.id) }}">
+                <input type="hidden" name="next" value="{{ request.full_path }}">
+                <button class="btn btn-primary btn-small" type="submit">Mark Owned</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="card-grid">
+      {% for c in cards %}
+      <article class="vault-card">
+        <div class="thumb-wrap">
+          {% if c.image %}
+          <img class="thumb" src="{{ url_for('static', filename='cards/' ~ c.image) }}" alt="{{ c.name }}" loading="lazy">
+          {% else %}
+          <div class="thumb thumb-fallback">No image</div>
+          {% endif %}
+        </div>
+
+        <h3>{{ c.name }}</h3>
+        <div class="meta">Series {{ c.series }} • Sticker #{{ c.sticker_number }}</div>
+
+        <form method="post" action="{{ url_for('update_back_color', card_id=c.id) }}" class="backcolor-form">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <label>Back color</label>
+          <select name="back_color" onchange="this.form.submit()">
+            <option value="">—</option>
+            {% for option in back_color_options %}
+            <option value="{{ option }}" {% if c.back_color == option %}selected{% endif %}>{{ option|title }}</option>
+            {% endfor %}
+          </select>
+        </form>
+
+
+        <form method="post" action="{{ url_for('update_duplicates', card_id=c.id) }}" class="dupe-form">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <label>Duplicates</label>
+          <input class="small-number" type="number" min="0" name="duplicate_count" value="{{ c.duplicate_count }}">
+          <button class="btn btn-small btn-secondary" type="submit">Save</button>
+        </form>
+
+        <form method="post" action="{{ url_for('update_order_date', card_id=c.id) }}" class="order-info-box">
+          <label>Order date</label>
+          <input type="date" name="order_date" value="{{ c.order_date }}">
+          <button class="btn btn-small btn-secondary" type="submit">Save</button>
+        </form>
+
+        <div class="card-bottom">
+          <div class="status-code">
+            {% if c.owned == 1 %}
+            <span class="pill pill-owned">Owned{% if c.duplicate_count > 0 %} +{{ c.duplicate_count }} dupes{% endif %}</span>
+            {% else %}
+            <span class="pill pill-missing">Missing</span>
+            {% endif %}
+            <span class="code">{{ c.code }}</span>
+          </div>
+
+          <div class="card-actions">
+            {% if c.owned == 1 %}
+            <form method="post" action="{{ url_for('mark_missing', card_id=c.id) }}">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <button class="btn btn-primary" type="submit">Mark Missing</button>
+            </form>
+            {% else %}
+            <form method="post" action="{{ url_for('mark_owned', card_id=c.id) }}">
+              <input type="hidden" name="next" value="{{ request.full_path }}">
+              <button class="btn btn-primary" type="submit">Mark Owned</button>
+            </form>
+            {% endif %}
+            <a class="btn btn-secondary" href="{{ url_for('card_detail', card_id=c.id) }}">Details</a>
+          </div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </main>
+</section>
+{% endblock %}

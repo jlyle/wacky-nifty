@@ -64,7 +64,7 @@ code{font-size:.82em;white-space:normal}
 /* v2.0.9 rejected-hit audit polish */
 .rejected-hits-table th:nth-child(4),
 .rejected-hits-table td:nth-child(4) {
-  min-width: 245px;
+  min-width: 150px;
 }
 
 .rejected-hits-table th:nth-child(2),
@@ -134,7 +134,7 @@ code{font-size:.82em;white-space:normal}
 
   .rejected-hits-table th:nth-child(4),
   .rejected-hits-table td:nth-child(4) {
-    min-width: 210px;
+    min-width: 140px;
   }
 }
 
@@ -161,7 +161,7 @@ code{font-size:.82em;white-space:normal}
 }
 
 .rejected-hits-table .reject-target-cell {
-  min-width: 230px;
+  min-width: 150px;
 }
 
 .rejected-hits-table .research-title {
@@ -409,6 +409,29 @@ code{font-size:.82em;white-space:normal}
 .research-results-table .table-wrap,
 .table-wrap {
   overflow-x: auto;
+  scrollbar-width: auto;
+  scrollbar-color: var(--gold) rgba(255, 255, 255, .08);
+}
+
+.table-wrap::-webkit-scrollbar {
+  height: 12px;
+}
+
+.table-wrap::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, .08);
+  border-radius: 999px;
+}
+
+.table-wrap::-webkit-scrollbar-thumb {
+  background: var(--gold);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.table-wrap::-webkit-scrollbar-thumb:hover {
+  background: var(--gold-2);
+  background-clip: padding-box;
 }
 
 /* Explicitly neutralize the v2.0.15 fixed-column squeeze. */

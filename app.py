@@ -1,11 +1,17 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, Response
-import sqlite3, re, csv, io, os, shutil, sys
+from dotenv import load_dotenv
+import sqlite3, re, csv, io, os, shutil, sys, json
 from pathlib import Path
 
 app = Flask(__name__)
 app.secret_key = "wacky-value-box"
 
 BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
+
+from services.research_db import ensure_research_tables, utcnow
+from services.research_scanner import run_research_scan
+from services.research_scheduler import start_scheduler, reschedule, status as scheduler_status
 BACK_COLOR_OPTIONS = ["white", "tan", "red ludlow", "black ludlow", "cloth"]
 PUZZLE_PIECES_PER_SERIES = 9
 
@@ -31,8 +37,10 @@ else:
     DB_PATH = BASE_DIR / "wacky_packages.db"
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=30000")
     return conn
 
 def table_columns(conn, table_name):
@@ -58,6 +66,11 @@ def ensure_card_columns():
     if "cond" in cols:
         conn.execute("ALTER TABLE cards DROP COLUMN cond")
     conn.commit()
+    conn.close()
+
+def ensure_research_schema():
+    conn = get_db()
+    ensure_research_tables(conn)
     conn.close()
 
 def ensure_puzzle_table():
@@ -474,7 +487,472 @@ def update_order_date(card_id):
     flash("Order date updated.")
     return redirect(request.form.get("next") or request.referrer or url_for("index"))
 
+
+# ---------------------------------------------------------------------------
+# eBay Research
+# ---------------------------------------------------------------------------
+
+def research_rule_form(form):
+    def as_float(name):
+        raw = (form.get(name) or "").strip()
+        if not raw:
+            return None
+        try:
+            return float(raw)
+        except ValueError:
+            return None
+
+    raw_card = (form.get("linked_card_id") or "").strip()
+    linked_card_id = int(raw_card) if raw_card.isdigit() else None
+
+    # Browser datalist behavior can vary. If JS did not populate the hidden
+    # card ID, resolve the visible label on the server. Expected format:
+    #   Series 3 #7 · Grime Dog Food
+    # Optional back text after the sticker name is harmless.
+    if linked_card_id is None:
+        label = (form.get("linked_card_label") or "").strip()
+        match = re.match(r"^Series\s+(\d+)\s+#(\d+)\s+·\s+(.+)$", label, re.I)
+        if match:
+            series = int(match.group(1))
+            sticker_number = int(match.group(2))
+            conn = get_db()
+            row = conn.execute(
+                """
+                SELECT id
+                FROM cards
+                WHERE series=? AND sticker_number=?
+                ORDER BY id
+                LIMIT 1
+                """,
+                (series, sticker_number),
+            ).fetchone()
+            conn.close()
+            if row:
+                linked_card_id = int(row["id"])
+
+    return {
+        "name": (form.get("name") or "").strip(),
+        "query": (form.get("query") or "").strip(),
+        "linked_card_id": linked_card_id,
+        "linked_card_label": (form.get("linked_card_label") or "").strip(),
+        "enabled": 1 if form.get("enabled") == "on" else 0,
+        "min_price": as_float("min_price"),
+        "max_price": as_float("max_price"),
+        "target_buy_price": as_float("target_buy_price"),
+        "min_seller_feedback": as_float("min_seller_feedback") or 97,
+        "match_mode": (form.get("match_mode") or "balanced").strip().lower(),
+        "product_filter": (form.get("product_filter") or "any").strip().lower(),
+        "grader_filter": (form.get("grader_filter") or "").strip().upper() or None,
+        "grade_filter": as_float("grade_filter"),
+        "target_scope": (form.get("target_scope") or "card").strip().lower(),
+        "target_series": (
+            int(form.get("target_series"))
+            if (form.get("target_series") or "").isdigit()
+            else None
+        ),
+    }
+
+@app.route("/research")
+def research():
+    ensure_research_schema()
+    conn = get_db()
+    clauses = ["is_hidden=0", "listing_status='active'"]
+    params = []
+
+    verdict = (request.args.get("verdict") or "").strip().upper()
+    search = (request.args.get("search") or "").strip()
+    watched = request.args.get("watched") == "1"
+    target_hits = request.args.get("target_hits") == "1"
+    price_drops = request.args.get("price_drops") == "1"
+
+    verdicts = [v for v in verdict.split(",") if v]
+    if verdicts:
+        clauses.append(f"verdict IN ({','.join('?' * len(verdicts))})")
+        params.extend(verdicts)
+    if search:
+        clauses.append("(title LIKE ? OR sticker_name LIKE ? OR seller_username LIKE ?)")
+        term = f"%{search}%"
+        params.extend([term, term, term])
+    if watched:
+        clauses.append("is_watched=1")
+    if target_hits:
+        clauses.append("target_price_hit=1")
+    if price_drops:
+        clauses.append("price_drop_amount>0")
+
+    rows = conn.execute(
+        f"""
+        SELECT l.*, r.name AS rule_name
+        FROM ebay_listings l
+        LEFT JOIN ebay_search_rules r ON r.id=l.search_rule_id
+        WHERE {' AND '.join(clauses)}
+        ORDER BY target_price_hit DESC,
+          CASE verdict WHEN 'BUY' THEN 1 WHEN 'GOOD' THEN 2 WHEN 'FAIR' THEN 3
+                       WHEN 'RISK' THEN 4 WHEN 'PASS' THEN 5 ELSE 6 END,
+          deal_score DESC, discount_pct DESC, last_seen DESC
+        LIMIT 500
+        """,
+        params,
+    ).fetchall()
+
+    stats = conn.execute(
+        """
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN verdict='BUY' THEN 1 ELSE 0 END) AS buys,
+          SUM(CASE WHEN verdict='GOOD' THEN 1 ELSE 0 END) AS good,
+          SUM(CASE WHEN verdict='FAIR' THEN 1 ELSE 0 END) AS fair,
+          SUM(CASE WHEN verdict='UNPRICED' THEN 1 ELSE 0 END) AS unpriced,
+          SUM(CASE WHEN target_price_hit=1 THEN 1 ELSE 0 END) AS target_hits,
+          SUM(CASE WHEN is_watched=1 THEN 1 ELSE 0 END) AS watched,
+          SUM(CASE WHEN price_drop_amount>0 THEN 1 ELSE 0 END) AS price_drops
+        FROM ebay_listings
+        WHERE is_hidden=0 AND listing_status='active'
+        """
+    ).fetchone()
+
+    last_scan = conn.execute(
+        "SELECT * FROM ebay_scan_runs ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    conn.close()
+    return render_template(
+        "research.html", rows=rows, stats=stats, last_scan=last_scan,
+        search=search, verdict=verdict, watched=watched, target_hits=target_hits,
+        price_drops=price_drops,
+    )
+
+@app.post("/research/scan")
+def research_scan():
+    try:
+        result = run_research_scan(get_db, trigger_type="manual")
+        if result.get("busy"):
+            flash("An eBay research scan is already running.")
+        else:
+            flash(
+                f"eBay scan complete: {result['searches']} searches, "
+                f"{result['accepted_hits']} accepted of {result['raw_hits']} raw hits, "
+                f"{result['new']} new, {result['price_drops']} price drops. "
+                f"Rejected: {result['rejected_unrelated']} unrelated, "
+                f"{result['rejected_conflict']} identity conflicts, "
+                f"{result['rejected_multichoice']} multi-choice, "
+                f"{result['rejected_modern']} modern/reprint, "
+                f"{result['rejected_product_filter']} product-filter, "
+                f"{result['rejected_era_format']} era/format."
+            )
+    except Exception as exc:
+        flash(f"eBay scan failed: {exc}")
+    return redirect(url_for("research"))
+
+@app.route("/research/rules")
+def research_rules():
+    ensure_research_schema()
+    conn = get_db()
+    rules = conn.execute(
+        """
+        SELECT r.*, c.series, c.sticker_number, c.sticker_name
+        FROM ebay_search_rules r
+        LEFT JOIN cards c ON c.id=r.linked_card_id
+        ORDER BY r.enabled DESC, r.name COLLATE NOCASE
+        """
+    ).fetchall()
+    conn.close()
+    return render_template("research_rules.html", rules=rules)
+
+@app.route("/research/rules/new", methods=["GET","POST"])
+def research_rule_new():
+    ensure_research_schema()
+    cards = load_cards()
+    if request.method == "POST":
+        data = research_rule_form(request.form)
+        if not data["name"] or not data["query"]:
+            flash("Rule name and eBay query are required.")
+            return render_template("research_rule_form.html", rule=data, cards=cards, mode="new")
+        conn = get_db()
+        now = utcnow()
+        conn.execute(
+            """
+            INSERT INTO ebay_search_rules(
+              name,query,linked_card_id,enabled,min_price,max_price,
+              target_buy_price,min_seller_feedback,match_mode,product_filter,
+                grader_filter,grade_filter,target_scope,target_series,created_at,updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                data["name"], data["query"], data["linked_card_id"], data["enabled"],
+                data["min_price"], data["max_price"], data["target_buy_price"],
+                data["min_seller_feedback"], data["match_mode"], data["product_filter"],
+                data["grader_filter"], data["grade_filter"], data["target_scope"],
+                data["target_series"], now, now,
+            ),
+        )
+        conn.commit()
+        conn.close()
+        flash("eBay research rule created.")
+        return redirect(url_for("research_rules"))
+    return render_template("research_rule_form.html", rule=None, cards=cards, mode="new")
+
+@app.route("/research/rules/<int:rule_id>/edit", methods=["GET","POST"])
+def research_rule_edit(rule_id):
+    ensure_research_schema()
+    cards = load_cards()
+    conn = get_db()
+    rule = conn.execute("SELECT * FROM ebay_search_rules WHERE id=?", (rule_id,)).fetchone()
+    if not rule:
+        conn.close()
+        return "Rule not found", 404
+    if request.method == "POST":
+        data = research_rule_form(request.form)
+        conn.execute(
+            """
+            UPDATE ebay_search_rules SET
+              name=?,query=?,linked_card_id=?,enabled=?,min_price=?,max_price=?,
+              target_buy_price=?,min_seller_feedback=?,match_mode=?,product_filter=?,
+                grader_filter=?,grade_filter=?,target_scope=?,target_series=?,updated_at=?
+            WHERE id=?
+            """,
+            (
+                data["name"], data["query"], data["linked_card_id"], data["enabled"],
+                data["min_price"], data["max_price"], data["target_buy_price"],
+                data["min_seller_feedback"], data["match_mode"], data["product_filter"],
+                data["grader_filter"], data["grade_filter"], data["target_scope"],
+                data["target_series"], utcnow(), rule_id,
+            ),
+        )
+        conn.commit()
+        conn.close()
+        flash("eBay research rule updated.")
+        return redirect(url_for("research_rules"))
+    conn.close()
+    return render_template("research_rule_form.html", rule=rule, cards=cards, mode="edit")
+
+@app.post("/research/rules/<int:rule_id>/toggle")
+def research_rule_toggle(rule_id):
+    conn = get_db()
+    row = conn.execute("SELECT enabled FROM ebay_search_rules WHERE id=?", (rule_id,)).fetchone()
+    if row:
+        conn.execute(
+            "UPDATE ebay_search_rules SET enabled=?,updated_at=? WHERE id=?",
+            (0 if row["enabled"] else 1, utcnow(), rule_id),
+        )
+        conn.commit()
+    conn.close()
+    return redirect(url_for("research_rules"))
+
+@app.post("/research/rules/<int:rule_id>/delete")
+def research_rule_delete(rule_id):
+    conn = get_db()
+    conn.execute("DELETE FROM ebay_search_rules WHERE id=?", (rule_id,))
+    conn.commit()
+    conn.close()
+    flash("eBay research rule deleted.")
+    return redirect(url_for("research_rules"))
+
+@app.post("/research/listing/<int:listing_id>/watch")
+def research_watch(listing_id):
+    conn = get_db()
+    row = conn.execute("SELECT is_watched FROM ebay_listings WHERE id=?", (listing_id,)).fetchone()
+    if row:
+        conn.execute(
+            "UPDATE ebay_listings SET is_watched=? WHERE id=?",
+            (0 if row["is_watched"] else 1, listing_id),
+        )
+        conn.commit()
+    conn.close()
+    return redirect(request.referrer or url_for("research"))
+
+@app.post("/research/listing/<int:listing_id>/hide")
+def research_hide(listing_id):
+    conn = get_db()
+    conn.execute("UPDATE ebay_listings SET is_hidden=1 WHERE id=?", (listing_id,))
+    conn.commit()
+    conn.close()
+    return redirect(request.referrer or url_for("research"))
+
+@app.route("/research/history/<int:listing_id>")
+def research_history(listing_id):
+    conn = get_db()
+    listing = conn.execute("SELECT * FROM ebay_listings WHERE id=?", (listing_id,)).fetchone()
+    if not listing:
+        conn.close()
+        return "Listing not found", 404
+    history = conn.execute(
+        """
+        SELECT * FROM ebay_price_history
+        WHERE listing_id=? OR ebay_item_id=?
+        ORDER BY observed_at
+        """,
+        (listing_id, listing["ebay_item_id"]),
+    ).fetchall()
+    chart = {
+        "labels": [r["observed_at"] for r in history],
+        "listing": [r["total_cost"] for r in history],
+        "market": [r["market_value"] for r in history],
+    }
+    conn.close()
+    return render_template(
+        "research_history.html", listing=listing, history=history,
+        chart_json=json.dumps(chart),
+    )
+
+
+@app.route("/research/rejected")
+def research_rejected():
+    ensure_research_schema()
+    conn = get_db()
+
+    reason = (request.args.get("reason") or "").strip()
+    run_id = (request.args.get("run_id") or "").strip()
+    search = (request.args.get("search") or "").strip()
+
+    clauses = ["1=1"]
+    params = []
+
+    if reason:
+        clauses.append("h.rejection_reason=?")
+        params.append(reason)
+
+    if run_id.isdigit():
+        clauses.append("h.scan_run_id=?")
+        params.append(int(run_id))
+
+    if search:
+        term = f"%{search}%"
+        clauses.append(
+            "(h.title LIKE ? OR c.sticker_name LIKE ? OR r.name LIKE ?)"
+        )
+        params.extend([term, term, term])
+
+    rows = conn.execute(
+        f"""
+        SELECT
+          h.*,
+          r.name AS rule_name,
+          c.series AS linked_series,
+          c.sticker_number AS linked_sticker_number,
+          c.sticker_name AS linked_sticker_name
+        FROM ebay_rejected_hits h
+        LEFT JOIN ebay_search_rules r ON r.id=h.search_rule_id
+        LEFT JOIN cards c ON c.id=h.linked_card_id
+        WHERE {' AND '.join(clauses)}
+        ORDER BY h.id DESC
+        LIMIT 1000
+        """,
+        params,
+    ).fetchall()
+
+    stats = conn.execute(
+        """
+        SELECT
+          COUNT(*) AS total,
+          SUM(CASE WHEN rejection_reason='unrelated' THEN 1 ELSE 0 END) AS unrelated,
+          SUM(CASE WHEN rejection_reason='conflict' THEN 1 ELSE 0 END) AS conflict,
+          SUM(CASE WHEN rejection_reason='multichoice' THEN 1 ELSE 0 END) AS multichoice,
+          SUM(CASE WHEN rejection_reason='modern' THEN 1 ELSE 0 END) AS modern,
+          SUM(CASE WHEN rejection_reason='product_filter' THEN 1 ELSE 0 END) AS product_filter,
+          SUM(CASE WHEN rejection_reason='era_format' THEN 1 ELSE 0 END) AS era_format
+        FROM ebay_rejected_hits
+        """
+    ).fetchone()
+
+    runs = conn.execute(
+        """
+        SELECT id, started_at, trigger_type
+        FROM ebay_scan_runs
+        ORDER BY id DESC
+        LIMIT 50
+        """
+    ).fetchall()
+
+    conn.close()
+    return render_template(
+        "research_rejected.html",
+        rows=rows,
+        stats=stats,
+        runs=runs,
+        reason=reason,
+        run_id=run_id,
+        search=search,
+    )
+
+@app.route("/research/scans/<int:run_id>/rejected")
+def research_scan_rejected(run_id):
+    return redirect(url_for("research_rejected", run_id=run_id))
+
+@app.route("/research/scans")
+def research_scans():
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM ebay_scan_runs ORDER BY id DESC LIMIT 200"
+    ).fetchall()
+    conn.close()
+    return render_template("research_scans.html", rows=rows)
+
+@app.route("/research/automation", methods=["GET","POST"])
+def research_automation():
+    ensure_research_schema()
+    if request.method == "POST":
+        enabled = "1" if request.form.get("enabled") == "on" else "0"
+        try:
+            interval = max(15, min(1440, int(request.form.get("interval") or 30)))
+        except ValueError:
+            interval = 30
+        try:
+            stale = max(1, min(20, int(request.form.get("stale_after") or 3)))
+        except ValueError:
+            stale = 3
+        conn = get_db()
+        for key, value in [
+            ("auto_scan_enabled", enabled),
+            ("auto_scan_interval_minutes", str(interval)),
+            ("stale_after_misses", str(stale)),
+        ]:
+            conn.execute(
+                """
+                INSERT INTO ebay_app_settings(key,value) VALUES (?,?)
+                ON CONFLICT(key) DO UPDATE SET value=excluded.value
+                """,
+                (key, value),
+            )
+        conn.commit()
+        conn.close()
+        reschedule(app, get_db)
+        flash("Research automation settings saved.")
+        return redirect(url_for("research_automation"))
+
+    conn = get_db()
+    settings = {
+        row["key"]: row["value"]
+        for row in conn.execute("SELECT key,value FROM ebay_app_settings")
+    }
+    conn.close()
+    return render_template(
+        "research_automation.html", settings=settings,
+        scheduler=scheduler_status(),
+    )
+
+@app.route("/research/inactive")
+def research_inactive():
+    conn = get_db()
+    rows = conn.execute(
+        """
+        SELECT * FROM ebay_listings
+        WHERE listing_status IN ('stale','ended','invalid_match')
+        ORDER BY last_seen DESC
+        LIMIT 500
+        """
+    ).fetchall()
+    conn.close()
+    return render_template("research_inactive.html", rows=rows)
+
+
 if __name__ == "__main__":
-    ensure_card_columns()
-    ensure_puzzle_table()
-    app.run(host="0.0.0.0", port=5050, debug=True)
+    USE_RELOADER = True
+    # The reloader re-execs this whole script in a child process; only run
+    # one-time startup (including the scheduler) in the process that's
+    # actually serving, not the reloader's watcher process.
+    if not USE_RELOADER or os.environ.get("WERKZEUG_RUN_MAIN") == "true":
+        ensure_card_columns()
+        ensure_puzzle_table()
+        ensure_research_schema()
+        start_scheduler(app, get_db)
+    app.run(host="0.0.0.0", port=5050, debug=True, use_reloader=USE_RELOADER)

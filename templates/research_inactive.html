@@ -1,0 +1,10 @@
+
+{% extends "base.html" %}
+{% block title %}Inactive eBay Listings · Wacky Packages Vault{% endblock %}
+{% block content %}
+<section class="hero compact-hero"><div><div class="eyebrow">EBAY RESEARCH</div><h1>Inactive Listings</h1><p class="hero-copy">Ended = known end time passed. Stale = absent from several scans. Invalid Match = an older row no longer satisfies its linked card identity. Stale does not automatically mean sold.</p></div></section>
+<section class="panel"><div class="table-wrap"><table class="spreadsheet-table">
+<thead><tr><th>Status</th><th>Listing</th><th>Total</th><th>Last seen</th><th>Misses</th><th></th></tr></thead>
+<tbody>{% for r in rows %}<tr><td>{{ r.listing_status|title }}</td><td>{{ r.title }}</td><td>${{ "%.2f"|format(r.total_cost) }}</td><td>{{ r.last_seen }}</td><td>{{ r.miss_count }}</td><td>{% if r.item_url %}<a class="btn btn-secondary btn-small" target="_blank" href="{{ r.item_url }}">eBay ↗</a>{% endif %}</td></tr>{% else %}<tr><td colspan="6">No inactive listings.</td></tr>{% endfor %}</tbody>
+</table></div></section>
+{% endblock %}

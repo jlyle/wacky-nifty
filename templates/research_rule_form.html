@@ -1,0 +1,215 @@
+
+{% extends "base.html" %}
+{% block title %}{{ "Add" if mode == "new" else "Edit" }} Research Rule · Wacky Packages Vault
+
+
+
+<script>
+(() => {
+  const input = document.getElementById("linkedCardSearch");
+  const hidden = document.getElementById("linkedCardId");
+  const status = document.getElementById("linkedCardStatus");
+  const options = Array.from(
+    document.querySelectorAll("#collectionCardOptions option")
+  );
+
+  const byLabel = new Map(
+    options.map(option => [
+      option.value.trim().toLowerCase(),
+      option.dataset.cardId
+    ])
+  );
+
+  function syncSelection() {
+    const label = input.value.trim();
+    const cardId = byLabel.get(label.toLowerCase());
+
+    if (cardId) {
+      hidden.value = cardId;
+      status.innerHTML = "Linked: <strong>" + escapeHtml(label) + "</strong>";
+      status.classList.add("linked-card-selected");
+    } else {
+      hidden.value = "";
+      status.textContent = label
+        ? "Choose a result from the suggestions to link this card."
+        : "No collection card selected.";
+      status.classList.remove("linked-card-selected");
+    }
+  }
+
+  function escapeHtml(value) {
+    const div = document.createElement("div");
+    div.textContent = value;
+    return div.innerHTML;
+  }
+
+  input.addEventListener("input", syncSelection);
+  input.addEventListener("change", syncSelection);
+  input.addEventListener("blur", () => setTimeout(syncSelection, 50));
+
+  syncSelection();
+})();
+</script>
+
+
+<script>
+(() => {
+  const product = document.getElementById("productFilter");
+  const targetScope = document.getElementById("targetScope");
+  const seriesFields = document.querySelectorAll(".series-scope-field");
+  const gradedFields = document.querySelectorAll(".graded-only-field");
+
+  function syncGradedFields() {
+    const show = product && product.value === "graded";
+    gradedFields.forEach(el => {
+      el.style.display = show ? "" : "none";
+    });
+  }
+
+  function syncTargetScope() {
+    const showSeries = targetScope && targetScope.value === "series";
+    seriesFields.forEach(el => {
+      el.style.display = showSeries ? "" : "none";
+    });
+  }
+
+  if (product) {
+    product.addEventListener("change", syncGradedFields);
+    syncGradedFields();
+  }
+
+  if (targetScope) {
+    targetScope.addEventListener("change", syncTargetScope);
+    syncTargetScope();
+  }
+})();
+</script>
+
+{% endblock %}
+{% block content %}
+<section class="hero compact-hero"><div><div class="eyebrow">EBAY RESEARCH</div><h1>{{ "Add" if mode == "new" else "Edit" }} Search Rule</h1></div></section>
+<section class="panel research-form-panel">
+<form method="post" class="research-form">
+  <div class="field"><label>Name</label><input name="name" required value="{{ rule.name if rule else '' }}" placeholder="Series 3 Grime Dog"></div>
+  <div class="field field-wide"><label>eBay query</label><input name="query" required value="{{ rule.query if rule else '' }}" placeholder='"Wacky Packages" "Grime Dog" 1973'></div>
+  <div class="field field-wide">
+    <label for="linkedCardSearch">Link to collection card</label>
+    {% set selected = rule.linked_card_id if rule and rule.linked_card_id is defined else none %}
+    {% set selected_card = namespace(label='') %}
+    {% for c in cards %}
+      {% if selected == c.id %}
+        {% set selected_card.label = 'Series ' ~ c.series ~ ' #' ~ c.sticker_number ~ ' · ' ~ c.name ~ ((' · ' ~ (c.back_color|title)) if c.back_color else '') %}
+      {% endif %}
+    {% endfor %}
+
+    <input
+      id="linkedCardSearch"
+      name="linked_card_label"
+      class="card-search-input"
+      type="text"
+      list="collectionCardOptions"
+      value="{{ selected_card.label }}"
+      placeholder="Type Grime Dog, Series 3, #7..."
+      autocomplete="off"
+    >
+    <input id="linkedCardId" type="hidden" name="linked_card_id" value="{{ selected or '' }}">
+
+    <datalist id="collectionCardOptions">
+      {% for c in cards %}
+      <option
+        value="Series {{ c.series }} #{{ c.sticker_number }} · {{ c.name }}{% if c.back_color %} · {{ c.back_color|title }}{% endif %}"
+        data-card-id="{{ c.id }}"
+      ></option>
+      {% endfor %}
+    </datalist>
+
+    <div id="linkedCardStatus" class="linked-card-status">
+      {% if selected_card.label %}
+        Selected: <strong>{{ selected_card.label }}</strong>
+      {% else %}
+        No collection card selected.
+      {% endif %}
+    </div>
+
+    <p class="muted">
+      Type any part of the sticker name, Series, or number and choose a result.
+      Linking a rule gives the scanner the exact Series / sticker identity even when the eBay title is sloppy.
+    </p>
+  </div>
+  <div class="field"><label>Minimum price</label><input type="number" step="0.01" name="min_price" value="{{ rule.min_price if rule and rule.min_price is not none else '' }}"></div>
+  <div class="field"><label>Maximum price</label><input type="number" step="0.01" name="max_price" value="{{ rule.max_price if rule and rule.max_price is not none else '' }}"></div>
+  <div class="field"><label>Target buy price</label><input type="number" step="0.01" name="target_buy_price" value="{{ rule.target_buy_price if rule and rule.target_buy_price is not none else '' }}"></div>
+  <div class="field">
+    <label>Research target</label>
+    {% set tscope = rule.target_scope if rule and rule.target_scope else "card" %}
+    <select name="target_scope" id="targetScope">
+      <option value="card" {% if tscope == "card" %}selected{% endif %}>Individual sticker / card</option>
+      <option value="series" {% if tscope == "series" %}selected{% endif %}>Complete original series</option>
+    </select>
+  </div>
+
+  <div class="field series-scope-field">
+    <label>Series</label>
+    <select name="target_series">
+      <option value="">Choose series</option>
+      {% for n in range(1, 17) %}
+      <option value="{{ n }}" {% if rule and rule.target_series == n %}selected{% endif %}>Series {{ n }}</option>
+      {% endfor %}
+    </select>
+    <p class="muted">
+      Finds complete Series 1-16 sets. Listings such as "complete your set",
+      "you pick", and individual cards are excluded.
+    </p>
+  </div>
+
+  <div class="field">
+    <label>Product type</label>
+    {% set pf = rule.product_filter if rule and rule.product_filter else "any" %}
+    <select name="product_filter" id="productFilter">
+      <option value="any" {% if pf == "any" %}selected{% endif %}>Any</option>
+      <option value="raw" {% if pf == "raw" %}selected{% endif %}>Raw only</option>
+      <option value="graded" {% if pf == "graded" %}selected{% endif %}>Graded only</option>
+    </select>
+    <p class="muted">Controls whether this rule accepts raw, graded, or either type of listing.</p>
+  </div>
+
+  <div class="field graded-only-field">
+    <label>Grader</label>
+    {% set gf = rule.grader_filter if rule and rule.grader_filter else "" %}
+    <select name="grader_filter">
+      <option value="" {% if not gf %}selected{% endif %}>Any grader</option>
+      <option value="PSA" {% if gf == "PSA" %}selected{% endif %}>PSA</option>
+      <option value="CGC" {% if gf == "CGC" %}selected{% endif %}>CGC</option>
+      <option value="BGS" {% if gf == "BGS" %}selected{% endif %}>BGS</option>
+      <option value="SGC" {% if gf == "SGC" %}selected{% endif %}>SGC</option>
+    </select>
+  </div>
+
+  <div class="field graded-only-field">
+    <label>Grade</label>
+    <input name="grade_filter" type="number" min="1" max="10" step="0.5"
+           value="{{ rule.grade_filter if rule and rule.grade_filter is not none else '' }}"
+           placeholder="Any grade">
+    <p class="muted">Optional exact numeric grade, such as 8, 9, or 10.</p>
+  </div>
+
+  <div class="field">
+    <label>Match mode</label>
+    {% set mm = rule.match_mode if rule and rule.match_mode else "balanced" %}
+    <select name="match_mode">
+      <option value="strict" {% if mm == "strict" %}selected{% endif %}>Strict</option>
+      <option value="balanced" {% if mm == "balanced" %}selected{% endif %}>Balanced</option>
+      <option value="broad" {% if mm == "broad" %}selected{% endif %}>Broad</option>
+    </select>
+    <p class="muted">
+      Strict keeps your exact eBay query. Balanced broadens discovery slightly.
+      Broad searches wider, but explicit Series/number conflicts still reject the listing.
+    </p>
+  </div>
+  <div class="field"><label>Minimum seller feedback %</label><input type="number" step="0.1" min="0" max="100" name="min_seller_feedback" value="{{ rule.min_seller_feedback if rule and rule.min_seller_feedback is not none else 97 }}"></div>
+  {% set enabled = rule.enabled if rule is not none and rule.enabled is defined else true %}
+  <label class="checkbox-row"><input type="checkbox" name="enabled" {% if enabled %}checked{% endif %}> <span>Enabled</span></label>
+  <div class="research-form-actions"><button class="btn btn-primary" type="submit">Save Rule</button><a class="btn btn-secondary" href="{{ url_for('research_rules') }}">Cancel</a></div>
+</form>
+</section>
+{% endblock %}

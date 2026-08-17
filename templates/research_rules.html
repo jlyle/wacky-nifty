@@ -1,0 +1,57 @@
+
+{% extends "base.html" %}
+{% block title %}Research Search Rules · Wacky Packages Vault{% endblock %}
+{% block content %}
+<section class="hero compact-hero">
+  <div><div class="eyebrow">EBAY RESEARCH</div><h1>Search Rules</h1><p class="hero-copy">Link an eBay query to a sticker in your collection database for safer comparisons. Linked rules reject unrelated search results before pricing.</p></div>
+</section>
+<section class="panel">
+  <div class="research-toolbar">
+    <a class="btn btn-primary" href="{{ url_for('research_rule_new') }}">+ Add Search Rule</a>
+    <a class="btn btn-secondary" href="{{ url_for('research') }}">Back to Research</a>
+  </div>
+  <div class="table-wrap">
+    <table class="spreadsheet-table">
+      <thead><tr><th>Status</th><th>Name</th><th>Query</th><th>Linked card</th><th>Price range</th><th>Target</th><th>Scope</th><th>Mode</th><th>Product</th><th></th></tr></thead>
+      <tbody>
+      {% for r in rules %}
+      <tr>
+        <td>{{ "Enabled" if r.enabled else "Disabled" }}</td>
+        <td><strong>{{ r.name }}</strong></td>
+        <td><code>{{ r.query }}</code></td>
+        <td>{% if r.linked_card_id %}Series {{ r.series }} #{{ r.sticker_number }} · {{ r.sticker_name }}{% else %}Not linked{% endif %}</td>
+        <td>{% if r.min_price is not none or r.max_price is not none %}${{ r.min_price or 0 }} – {{ "$" ~ r.max_price if r.max_price is not none else "∞" }}{% else %}Any{% endif %}</td>
+        <td>{% if r.target_buy_price is not none %}${{ "%.2f"|format(r.target_buy_price) }}{% else %}—{% endif %}</td>
+        <td>
+          {% if (r.target_scope or "card") == "series" %}
+            Complete Series {{ r.target_series }}
+          {% else %}
+            Individual
+          {% endif %}
+        </td>
+        <td>{{ (r.match_mode or "balanced")|title }}</td>
+        <td>
+          {% if (r.product_filter or "any") == "graded" %}
+            Graded
+            {% if r.grader_filter %} · {{ r.grader_filter }}{% endif %}
+            {% if r.grade_filter is not none %} {{ r.grade_filter }}{% endif %}
+          {% elif (r.product_filter or "any") == "raw" %}
+            Raw
+          {% else %}
+            Any
+          {% endif %}
+        </td>
+        <td class="research-actions-cell">
+          <a class="btn btn-secondary btn-small" href="{{ url_for('research_rule_edit', rule_id=r.id) }}">Edit</a>
+          <form method="post" action="{{ url_for('research_rule_toggle', rule_id=r.id) }}"><button class="btn btn-secondary btn-small" type="submit">{{ "Disable" if r.enabled else "Enable" }}</button></form>
+          <form method="post" action="{{ url_for('research_rule_delete', rule_id=r.id) }}" onsubmit="return confirm('Delete this search rule?');"><button class="btn btn-secondary btn-small" type="submit">Delete</button></form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="10" class="muted">No search rules yet.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

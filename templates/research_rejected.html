@@ -1,0 +1,179 @@
+
+{% extends "base.html" %}
+{% block title %}Rejected eBay Hits · Wacky Packages Vault{% endblock %}
+{% block content %}
+
+<section class="hero compact-hero">
+  <div>
+    <div class="eyebrow">EBAY RESEARCH AUDIT</div>
+    <h1>Rejected Hits</h1>
+    <p class="hero-copy">
+      Inspect listings rejected before pricing. Use this page to tune matching without weakening safeguards blindly.
+    </p>
+  </div>
+  <div class="stats-grid research-stats">
+    <div class="stat-card"><div class="stat-label">Rejected</div><div class="stat-value">{{ stats.total or 0 }}</div></div>
+    <div class="stat-card"><div class="stat-label">Unrelated</div><div class="stat-value">{{ stats.unrelated or 0 }}</div></div>
+    <div class="stat-card"><div class="stat-label">Conflicts</div><div class="stat-value">{{ stats.conflict or 0 }}</div></div>
+    <div class="stat-card"><div class="stat-label">Multi-choice</div><div class="stat-value">{{ stats.multichoice or 0 }}</div></div>
+    <div class="stat-card"><div class="stat-label">Modern / reprint</div><div class="stat-value">{{ stats.modern or 0 }}</div></div>
+    <div class="stat-card"><div class="stat-label">Product filter</div><div class="stat-value">{{ stats.product_filter or 0 }}</div></div>
+    <div class="stat-card"><div class="stat-label">Era / format</div><div class="stat-value">{{ stats.era_format or 0 }}</div></div>
+  </div>
+</section>
+
+<section class="panel">
+  <form method="get" class="research-filter">
+    <input name="search" value="{{ search }}" placeholder="title, linked card, rule...">
+
+    <select name="reason">
+      <option value="">All rejection reasons</option>
+      <option value="unrelated" {% if reason == "unrelated" %}selected{% endif %}>Unrelated</option>
+      <option value="conflict" {% if reason == "conflict" %}selected{% endif %}>Identity conflict</option>
+      <option value="multichoice" {% if reason == "multichoice" %}selected{% endif %}>Multi-choice</option>
+      <option value="modern" {% if reason == "modern" %}selected{% endif %}>Modern / reprint</option>
+      <option value="product_filter" {% if reason == "product_filter" %}selected{% endif %}>Product filter</option>
+      <option value="era_format" {% if reason == "era_format" %}selected{% endif %}>Era / format</option>
+    </select>
+
+    <select name="run_id">
+      <option value="">All scans</option>
+      {% for r in runs %}
+      <option value="{{ r.id }}" {% if run_id == r.id|string %}selected{% endif %}>
+        #{{ r.id }} · {{ r.started_at }} · {{ r.trigger_type }}
+      </option>
+      {% endfor %}
+    </select>
+
+    <button class="btn btn-primary" type="submit">Apply</button>
+    <a class="btn btn-secondary" href="{{ url_for('research_rejected') }}">Reset</a>
+    <a class="btn btn-secondary" href="{{ url_for('research') }}">Back to Research</a>
+  </form>
+</section>
+
+<section class="panel results">
+  <div class="table-wrap">
+    <table class="spreadsheet-table research-table rejected-hits-table">
+      <thead>
+        <tr>
+          <th>Reason</th>
+          <th>eBay listing</th>
+          <th>Parsed identity</th>
+          <th>Linked target</th>
+          <th>Similarity</th>
+          <th>Scan</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td class="reject-reason-cell">
+            {% if row.rejection_reason == "era_format" %}
+              <span class="reject-badge reject-era-format">Era / format</span>
+              <div class="reject-why">{{ row.era_format_detail or "Not an original Series 1-16 sticker format" }}</div>
+            {% elif row.rejection_reason == "product_filter" %}
+              <span class="reject-badge reject-product-filter">Product filter</span>
+              <div class="reject-why">{{ row.product_filter_detail or "Listing does not satisfy rule product constraints" }}</div>
+            {% elif row.rejection_reason == "modern" %}
+              <span class="reject-badge reject-modern">Modern / reprint</span>
+              <div class="reject-why">
+                {% if row.modern_labels %}{{ row.modern_labels }}{% endif %}
+                {% if row.explicit_years %}
+                  {% if row.modern_labels %} · {% endif %}
+                  year {{ row.explicit_years }}
+                {% endif %}
+              </div>
+            {% elif row.rejection_reason == "conflict" %}
+              <span class="reject-badge reject-conflict">Identity conflict</span>
+              <div class="reject-why">
+                {% if row.parsed_series and row.linked_series and row.parsed_series != row.linked_series %}
+                  Series {{ row.parsed_series }} ≠ {{ row.linked_series }}
+                {% elif row.parsed_sticker_number and row.linked_sticker_number and row.parsed_sticker_number != row.linked_sticker_number %}
+                  Historical reject: eBay ref #{{ row.parsed_sticker_number }} vs internal #{{ row.linked_sticker_number }}
+                {% else %}
+                  Parsed identity conflicts with linked target
+                {% endif %}
+              </div>
+            {% elif row.rejection_reason == "multichoice" %}
+              <span class="reject-badge reject-multichoice">Multi-choice</span>
+              <div class="reject-why">Choice / pick-one listing excluded from comps</div>
+            {% else %}
+              <span class="reject-badge reject-unrelated">Unrelated</span>
+              <div class="reject-why">Title did not match linked target strongly enough</div>
+            {% endif %}
+          </td>
+
+          <td>
+            <div class="research-title">{{ row.title }}</div>
+            {% if row.condition_flags %}
+              <div class="research-risk">{{ row.condition_flags }}</div>
+            {% endif %}
+          </td>
+
+          <td class="research-identity reject-parsed">
+            <strong>
+              {% if row.parsed_series %}S{{ row.parsed_series }}{% else %}S—{% endif %}
+              {% if row.parsed_sticker_number %}<div class="muted">eBay ref #{{ row.parsed_sticker_number }}</div>{% endif %}
+            </strong>
+            {% if row.parsed_back_variant %}<div>{{ row.parsed_back_variant|title }} back</div>{% endif %}
+            <div>
+              {% if row.parsed_grader %}
+                {{ row.parsed_grader }} {{ row.parsed_grade }}
+              {% else %}
+                {{ row.parsed_product_type|title if row.parsed_product_type else "Raw" }}
+                {% if row.parsed_raw_condition %} · {{ row.parsed_raw_condition }}{% endif %}
+              {% endif %}
+            </div>
+            {% if row.parsed_quantity and row.parsed_quantity > 1 %}
+              <div>Qty {{ row.parsed_quantity }}</div>
+            {% endif %}
+          </td>
+
+          <td class="reject-target-cell">
+            {% if row.linked_card_id %}
+              <div class="reject-target-line">
+                <strong>S{{ row.linked_series }}</strong>
+                <span class="muted">internal #{{ row.linked_sticker_number }}</span>
+                <span>·</span>
+                <span>{{ row.linked_sticker_name }}</span>
+              </div>
+              <div class="muted">Rule: {{ row.rule_name }}</div>
+            {% else %}
+              —
+            {% endif %}
+          </td>
+
+          <td>
+            {% if row.name_similarity is not none %}
+              {{ "%.0f"|format(row.name_similarity * 100) }}%
+            {% else %}
+              —
+            {% endif %}
+          </td>
+
+          <td class="reject-scan-cell">
+            <strong>#{{ row.scan_run_id }}</strong>
+            <div class="muted">
+              {{ row.created_at[5:10] if row.created_at else "" }}
+              {{ row.created_at[11:16] if row.created_at else "" }}
+            </div>
+          </td>
+
+          <td>
+            {% if row.item_url %}
+              <a class="btn btn-primary btn-small reject-ebay-btn" target="_blank" rel="noopener" href="{{ row.item_url }}">Open eBay ↗</a>
+            {% endif %}
+          </td>
+        </tr>
+      {% else %}
+        <tr>
+          <td colspan="7" class="muted">No rejected hits match these filters.</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% endblock %}

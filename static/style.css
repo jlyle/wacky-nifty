@@ -34,6 +34,9 @@ img{max-width:100%;display:block}
 .hero-copy{margin:0;color:var(--muted);font-size:18px}
 .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 .stat-card{border:1px solid var(--border);border-radius:20px;padding:18px;background:rgba(31,12,6,.72)}
+.stat-card-link{display:block;transition:border-color .15s,background .15s,transform .15s}
+.stat-card-link:hover{border-color:var(--gold);background:rgba(52,22,10,.85);transform:translateY(-2px)}
+.stat-card-active{border-color:var(--gold-2);box-shadow:0 0 0 1px var(--gold-2) inset}
 .stat-label{color:var(--muted);font-size:14px;margin-bottom:8px}
 .stat-value{font-size:32px;font-weight:800;color:#f8e2aa}
 .panel{border-radius:26px}

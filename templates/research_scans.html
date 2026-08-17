@@ -1,0 +1,30 @@
+
+{% extends "base.html" %}
+{% block title %}Research Scan History · Wacky Packages Vault{% endblock %}
+{% block content %}
+<section class="hero compact-hero"><div><div class="eyebrow">EBAY RESEARCH</div><h1>Scan History</h1></div></section>
+<section class="panel"><div class="table-wrap"><table class="spreadsheet-table">
+<thead><tr><th>Started</th><th>Trigger</th><th>Status</th><th>Searches</th><th>Listings</th><th>New</th><th>Drops</th><th>Stale/Ended</th><th>Raw</th><th>Accepted</th><th>Rejected</th><th>Duration</th><th>Error</th><th></th></tr></thead>
+<tbody>{% for r in rows %}<tr><td>{{ r.started_at }}</td><td>{{ r.trigger_type }}</td><td>{{ r.status }}</td><td>{{ r.searches_run or 0 }}</td><td>{{ r.listings_seen or 0 }}</td><td>{{ r.new_listings or 0 }}</td><td>{{ r.price_drops or 0 }}</td><td>{{ r.stale_marked or 0 }}</td>
+<td>{{ r.raw_hits or 0 }}</td>
+<td>{{ r.accepted_hits or 0 }}</td>
+<td>
+  {{ (r.rejected_unrelated or 0) + (r.rejected_conflict or 0) + (r.rejected_multichoice or 0) + (r.rejected_modern or 0) + (r.rejected_product_filter or 0) + (r.rejected_era_format or 0) }}
+  <div class="muted">
+    U:{{ r.rejected_unrelated or 0 }}
+    C:{{ r.rejected_conflict or 0 }}
+    M:{{ r.rejected_multichoice or 0 }}
+    R:{{ r.rejected_modern or 0 }}
+    P:{{ r.rejected_product_filter or 0 }}
+    E:{{ r.rejected_era_format or 0 }}
+  </div>
+</td>
+<td>{% if r.duration_seconds is not none %}{{ "%.1f"|format(r.duration_seconds) }}s{% else %}—{% endif %}</td><td class="research-risk">{{ r.error or "" }}</td>
+<td>
+  {% if (r.rejected_unrelated or 0) + (r.rejected_conflict or 0) + (r.rejected_multichoice or 0) + (r.rejected_modern or 0) + (r.rejected_product_filter or 0) + (r.rejected_era_format or 0) > 0 %}
+    <a class="btn btn-secondary btn-small" href="{{ url_for('research_scan_rejected', run_id=r.id) }}">Rejected Hits</a>
+  {% endif %}
+</td>
+</tr>{% else %}<tr><td colspan="14">No scans yet.</td></tr>{% endfor %}</tbody>
+</table></div></section>
+{% endblock %}

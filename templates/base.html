@@ -5,8 +5,19 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>{% block title %}Wacky Packages Vault{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='research.css') }}">
 </head>
 <body>
+  <div class="vault-topbar">
+    <a href="{{ url_for('index') }}" class="vault-brand">Wacky Packages Vault <span>v2.0.30</span></a>
+    <nav>
+      <a href="{{ url_for('index') }}">Collection</a>
+      <a href="{{ url_for('puzzles') }}">Puzzles</a>
+      <a href="{{ url_for('research') }}">eBay Research</a>
+      <a href="{{ url_for('research_rules') }}">Search Rules</a>
+      <a href="{{ url_for('research_rejected') }}">Rejected Hits</a>
+    </nav>
+  </div>
   <div class="page-shell">
     {% with messages = get_flashed_messages() %}
       {% if messages %}

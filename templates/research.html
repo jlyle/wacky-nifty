@@ -1,0 +1,164 @@
+
+{% extends "base.html" %}
+{% block title %}eBay Research · Wacky Packages Vault{% endblock %}
+{% block content %}
+<section class="hero research-hero">
+  <div>
+    <div class="eyebrow">WACKY PACKAGES MARKET RESEARCH</div>
+    <h1>eBay Research</h1>
+    <p class="hero-copy">Like-for-like comparisons for individual stickers, backs, raw cards and graded cards.</p>
+  </div>
+  <div class="stats-grid research-stats">
+    <a class="stat-card stat-card-link {{ 'stat-card-active' if not verdict and not target_hits and not price_drops else '' }}" href="{{ url_for('research') }}">
+      <div class="stat-label">Active listings</div><div class="stat-value">{{ stats.total or 0 }}</div>
+    </a>
+    <a class="stat-card stat-card-link {{ 'stat-card-active' if verdict == 'BUY,GOOD' else '' }}" href="{{ url_for('research', verdict='BUY,GOOD') }}">
+      <div class="stat-label">Buy / Good</div><div class="stat-value">{{ (stats.buys or 0) + (stats.good or 0) }}</div>
+    </a>
+    <a class="stat-card stat-card-link {{ 'stat-card-active' if target_hits else '' }}" href="{{ url_for('research', target_hits=1) }}">
+      <div class="stat-label">🎯 Target hits</div><div class="stat-value">{{ stats.target_hits or 0 }}</div>
+    </a>
+    <a class="stat-card stat-card-link {{ 'stat-card-active' if price_drops else '' }}" href="{{ url_for('research', price_drops=1) }}">
+      <div class="stat-label">📉 Price drops</div><div class="stat-value">{{ stats.price_drops or 0 }}</div>
+    </a>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="research-toolbar">
+    <form method="get" class="research-filter">
+      <input name="search" value="{{ search }}" placeholder="Grime Dog, Spit and Spill, seller...">
+      <select name="verdict">
+        <option value="">All verdicts</option>
+        {% for v in ["BUY","GOOD","FAIR","PASS","RISK","UNPRICED"] %}
+        <option value="{{ v }}" {% if verdict == v %}selected{% endif %}>{{ v }}</option>
+        {% endfor %}
+      </select>
+      <label><input type="checkbox" name="watched" value="1" {% if watched %}checked{% endif %}> Watched</label>
+      <label><input type="checkbox" name="target_hits" value="1" {% if target_hits %}checked{% endif %}> Target hits</label>
+      <button class="btn btn-primary" type="submit">Apply</button>
+      <a class="btn btn-secondary" href="{{ url_for('research') }}">Reset</a>
+    </form>
+    <div class="research-actions">
+      <a class="btn btn-secondary" href="{{ url_for('research_rules') }}">Search Rules</a>
+      <a class="btn btn-secondary" href="{{ url_for('research_scans') }}">Scan History</a>
+      <a class="btn btn-secondary" href="{{ url_for('research_rejected') }}">Rejected Hits</a>
+      <a class="btn btn-secondary" href="{{ url_for('research_automation') }}">Automation</a>
+      <a class="btn btn-secondary" href="{{ url_for('research_inactive') }}">Inactive</a>
+      <form method="post" action="{{ url_for('research_scan') }}">
+        <button class="btn btn-primary" type="submit">Scan eBay Now</button>
+      </form>
+    </div>
+  </div>
+  {% if last_scan %}
+  <p class="muted research-lastscan">
+    Last scan: {{ last_scan.started_at }} · {{ last_scan.status }} ·
+    {{ last_scan.accepted_hits or last_scan.listings_seen or 0 }} accepted / {{ last_scan.raw_hits or last_scan.listings_seen or 0 }} raw
+    · {{ last_scan.new_listings or 0 }} new
+    · rejected U:{{ last_scan.rejected_unrelated or 0 }}
+    C:{{ last_scan.rejected_conflict or 0 }}
+    M:{{ last_scan.rejected_multichoice or 0 }}
+    R:{{ last_scan.rejected_modern or 0 }}
+    P:{{ last_scan.rejected_product_filter or 0 }}
+    E:{{ last_scan.rejected_era_format or 0 }}
+  </p>
+  {% endif %}
+</section>
+
+<section class="panel results">
+  <div class="table-wrap">
+    <table class="spreadsheet-table research-table research-results-table">
+      <thead>
+        <tr>
+          <th class="col-score">Score</th>
+          <th class="col-listing">Listing</th>
+          <th class="col-total">Total</th>
+          <th class="col-market">Market</th>
+          <th class="col-discount">Discount</th>
+          <th class="col-seller">Seller</th>
+          <th class="col-identity">Identity</th>
+          <th class="col-actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for row in rows %}
+        <tr>
+          <td>
+            <div class="research-score research-score-{{ row.verdict|lower }}">{{ row.deal_score }}</div>
+            <div class="research-verdict">{{ row.verdict }}</div>
+          </td>
+          <td class="listing-cell col-listing-cell">
+            {% if row.target_price_hit %}<span class="pill pill-owned">🎯 TARGET HIT</span>{% endif %}
+            {% if row.price_drop_amount and row.price_drop_amount > 0 %}<span class="pill pill-neutral">📉 -${{ "%.2f"|format(row.price_drop_amount) }}</span>{% endif %}
+            <div class="research-title">{{ row.title }}</div>
+            <div class="listing-rule-label">Rule: {{ row.rule_name or "—" }}</div>
+          </td>
+          <td class="total-cell col-total-cell"><strong>${{ "%.2f"|format(row.total_cost) }}</strong><div class="muted">${{ "%.2f"|format(row.price) }} + ${{ "%.2f"|format(row.shipping) }}</div></td>
+          <td class="market-cell col-market-cell">
+            {% if row.market_value is not none %}
+              <div class="market-label">MARKET</div>
+              <div class="market-value">${{ "%.2f"|format(row.market_value) }}</div>
+              <div class="market-meta">{{ row.comparable_count }} comps</div>
+              <div class="market-meta">{{ row.comp_unique_sellers or 0 }} sellers</div>
+              {% if (row.comp_raw_clean or 0) > (row.comp_after_dedupe or 0) %}
+                <div class="market-dedupe">{{ row.comp_raw_clean }} raw → {{ row.comp_after_dedupe }} deduped</div>
+              {% endif %}
+            {% else %}
+              <div class="market-label">MARKET</div>
+              <div class="market-value market-unpriced">—</div>
+              {% if row.comp_after_dedupe %}
+                <div class="market-meta">{{ row.comp_after_dedupe }} clean comps</div>
+                <div class="market-meta">{{ row.comp_unique_sellers or 0 }} sellers</div>
+              {% else %}
+                <div class="market-meta">Not enough comps</div>
+              {% endif %}
+            {% endif %}
+          </td>
+          <td class="discount-cell col-discount-cell">{% if row.discount_pct is not none %}{{ "%.1f"|format(row.discount_pct) }}%{% else %}—{% endif %}</td>
+          <td class="seller-cell col-seller-cell">{{ row.seller_username or "—" }}{% if row.seller_feedback is not none %}<div class="muted">{{ row.seller_feedback }}%</div>{% endif %}</td>
+          <td class="research-identity">
+            {% if row.product_type == "complete_series" %}
+              <strong>Complete Series {{ row.series }}</strong>
+              {% if row.back_variant %}
+                <div>{{ row.back_variant|title }} back</div>
+              {% else %}
+                <div>Back · UNKNOWN</div>
+              {% endif %}
+              <div>Condition · {{ row.raw_condition or "UNKNOWN" }}</div>
+              {% if row.quantity and row.quantity > 1 %}<div>Qty {{ row.quantity }}</div>{% endif %}
+              {% if row.condition_flags %}<div class="research-risk">{{ row.condition_flags }}</div>{% endif %}
+            {% else %}
+              {% if row.series %}Series {{ row.series }}{% endif %}
+              {% if row.sticker_name %}<div>{{ row.sticker_name }}</div>{% endif %}
+              {% if row.sticker_number %}<div class="muted">eBay ref #{{ row.sticker_number }}</div>{% endif %}
+              {% if row.back_variant %}<div>{{ row.back_variant|title }} back</div>{% endif %}
+              <div>
+                {% if row.grader %}
+                  {{ row.grader }} {{ row.grade }}
+                {% else %}
+                  Raw · {{ row.raw_condition or "UNKNOWN" }}
+                {% endif %}
+              </div>
+              {% if row.quantity and row.quantity > 1 %}<div>Lot of {{ row.quantity }}</div>{% endif %}
+              {% if row.condition_flags %}<div class="research-risk">{{ row.condition_flags }}</div>{% endif %}
+            {% endif %}
+          </td>
+          <td class="research-actions-cell">
+            {% if row.item_url %}<a class="btn btn-secondary btn-small" target="_blank" rel="noopener" href="{{ row.item_url }}">eBay ↗</a>{% endif %}
+            <a class="btn btn-secondary btn-small" href="{{ url_for('research_history', listing_id=row.id) }}">History</a>
+            <form method="post" action="{{ url_for('research_watch', listing_id=row.id) }}">
+              <button class="btn btn-secondary btn-small" type="submit">{{ "★" if row.is_watched else "☆" }}</button>
+            </form>
+            <form method="post" action="{{ url_for('research_hide', listing_id=row.id) }}">
+              <button class="btn btn-secondary btn-small" type="submit">Hide</button>
+            </form>
+          </td>
+        </tr>
+      {% else %}
+        <tr><td colspan="8" class="muted">No eBay research listings yet. Add a Search Rule, then run a scan.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

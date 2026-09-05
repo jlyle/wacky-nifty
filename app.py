@@ -451,10 +451,11 @@ def export_missing_puzzle_pieces():
     lines = []
     for series in grouped:
         missing = [p for p in series["pieces"] if p["owned"] != 1]
-        if not missing:
-            continue
         if lines:
             lines.append("")
+        if not missing:
+            lines.append(f"Series {series['series']} - complete")
+            continue
         lines.append(f"Series {series['series']}")
         lines.append("")
         for piece in missing:

@@ -3,6 +3,7 @@
 <h1>Series Puzzle Tracker</h1>
 <p><a href="{{ url_for('index') }}">← Back to Cards</a></p>
 <p>Total pieces: {{ total_pieces }} | Owned pieces: {{ owned_pieces }} | Completion: {{ percent }}%</p>
+<p><a class="btn btn-secondary btn-small" href="{{ url_for('export_missing_puzzle_pieces') }}">Save Missing Puzzle Pieces TXT</a></p>
 
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px;">
 {% for series in puzzle_series %}

@@ -14,6 +14,12 @@ from services.research_scanner import run_research_scan
 from services.research_scheduler import start_scheduler, reschedule, status as scheduler_status
 BACK_COLOR_OPTIONS = ["white", "tan", "red ludlow", "black ludlow", "cloth"]
 PUZZLE_PIECES_PER_SERIES = 9
+PUZZLE_COLUMN_LABELS = ["left", "middle", "right"]
+
+def puzzle_piece_location(piece_number):
+    row = (piece_number - 1) // 3 + 1
+    column = PUZZLE_COLUMN_LABELS[(piece_number - 1) % 3]
+    return row, column
 
 def user_data_dir():
     """Writable per-OS location for the db when running as a packaged desktop app."""
@@ -437,6 +443,27 @@ def export_missing():
         "\n".join(lines) + ("\n" if lines else ""),
         mimetype="text/plain",
         headers={"Content-Disposition": "attachment; filename=wacky-packages-missing.txt"},
+    )
+
+@app.route("/export/missing_puzzle_pieces")
+def export_missing_puzzle_pieces():
+    grouped = load_puzzles()
+    lines = []
+    for series in grouped:
+        missing = [p for p in series["pieces"] if p["owned"] != 1]
+        if not missing:
+            continue
+        if lines:
+            lines.append("")
+        lines.append(f"Series {series['series']}")
+        lines.append("")
+        for piece in missing:
+            row, column = puzzle_piece_location(piece["piece_number"])
+            lines.append(f"Row {row} - {column}")
+    return Response(
+        "\n".join(lines) + ("\n" if lines else ""),
+        mimetype="text/plain",
+        headers={"Content-Disposition": "attachment; filename=wacky-packages-missing-puzzle-pieces.txt"},
     )
 
 @app.route("/export/orders")

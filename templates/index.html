@@ -133,6 +133,7 @@
         <div class="export-actions-row">
           <a class="btn btn-secondary btn-small" href="/export/owned">Save Owned TXT</a>
           <a class="btn btn-secondary btn-small" href="/export/missing">Save Missing TXT</a>
+          <a class="btn btn-secondary btn-small" href="{{ url_for('export_missing_puzzle_pieces') }}">Save Missing Puzzle Pieces TXT</a>
           <form method="get" action="/export/orders" class="order-export-form">
             <input type="date" name="from" title="From date">
             <input type="date" name="to" title="To date">

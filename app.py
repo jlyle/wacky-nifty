@@ -21,6 +21,10 @@ def puzzle_piece_location(piece_number):
     column = PUZZLE_COLUMN_LABELS[(piece_number - 1) % 3]
     return row, column
 
+def puzzle_piece_label(piece_number):
+    row, column = puzzle_piece_location(piece_number)
+    return f"Row {row} {column.capitalize()}"
+
 def user_data_dir():
     """Writable per-OS location for the db when running as a packaged desktop app."""
     if sys.platform == "win32":
@@ -234,6 +238,7 @@ def load_puzzles():
             dupes = 0
         owned = normalize_owned(row["owned"])
         piece = {"series": int(row["series"]), "piece_number": int(row["piece_number"]), "owned": owned, "duplicate_count": dupes, "notes": row["notes"] or ""}
+        piece["label"] = puzzle_piece_label(piece["piece_number"])
         grouped[piece["series"]]["pieces"].append(piece)
         if owned == 1:
             grouped[piece["series"]]["owned_count"] += 1
@@ -273,7 +278,7 @@ def update_puzzle_piece(series, piece_number):
     conn.execute("UPDATE series_puzzle_pieces SET owned = ?, duplicate_count = ?, notes = ? WHERE series = ? AND piece_number = ?", (owned, duplicate_count, notes, series, piece_number))
     conn.commit()
     conn.close()
-    flash(f"Series {series} puzzle piece {piece_number} updated.")
+    flash(f"Series {series} puzzle piece {puzzle_piece_label(piece_number)} updated.")
     return redirect(request.form.get("next") or request.referrer or url_for("puzzles"))
 
 @app.route("/card/<int:card_id>")
@@ -459,8 +464,7 @@ def export_missing_puzzle_pieces():
         lines.append(f"Series {series['series']}")
         lines.append("")
         for piece in missing:
-            row, column = puzzle_piece_location(piece["piece_number"])
-            lines.append(f"Row {row} - {column}")
+            lines.append(piece["label"])
     return Response(
         "\n".join(lines) + ("\n" if lines else ""),
         mimetype="text/plain",

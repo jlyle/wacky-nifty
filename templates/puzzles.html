@@ -16,7 +16,7 @@
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
       {% for piece in series.pieces %}
       <div style="border:1px solid #555;padding:10px;border-radius:10px;background:{% if piece.owned == 1 %}rgba(0,255,0,.08){% else %}rgba(255,0,0,.08){% endif %};">
-        <div style="font-weight:bold;margin-bottom:8px;">Piece {{ piece.piece_number }}</div>
+        <div style="font-weight:bold;margin-bottom:8px;">{{ piece.label }}</div>
         <form method="post" action="{{ url_for('update_puzzle_piece', series=series.series, piece_number=piece.piece_number) }}">
           <input type="hidden" name="next" value="{{ request.full_path }}">
           <select name="owned">
